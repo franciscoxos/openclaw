@@ -265,7 +265,7 @@ class NodeRuntime(
   val pendingGatewayTrust: StateFlow<GatewayTrustPrompt?> = _pendingGatewayTrust.asStateFlow()
   private val connectAttemptSeq = AtomicLong(0)
 
-  private fun resolveNodeMainSessionKey(agentId: String? = gatewayDefaultAgentId): String {
+  private fun resolveNodeMainSessionKey(agentId: String? = null): String {
     val deviceId = identityStore.loadOrCreate().deviceId
     return buildNodeMainSessionKey(deviceId, agentId)
   }
@@ -303,12 +303,14 @@ class NodeRuntime(
   val modelCatalogRefreshing: StateFlow<Boolean> = _modelCatalogRefreshing.asStateFlow()
   private val _modelCatalogErrorText = MutableStateFlow<String?>(null)
   val modelCatalogErrorText: StateFlow<String?> = _modelCatalogErrorText.asStateFlow()
+  private val _gatewayDefaultAgentId = MutableStateFlow<String?>(null)
+  val gatewayDefaultAgentId: StateFlow<String?> = _gatewayDefaultAgentId.asStateFlow()
+  private val _gatewayAgents = MutableStateFlow<List<GatewayAgentSummary>>(emptyList())
+  val gatewayAgents: StateFlow<List<GatewayAgentSummary>> = _gatewayAgents.asStateFlow()
 
   private val _isForeground = MutableStateFlow(true)
   val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
 
-  private var gatewayDefaultAgentId: String? = null
-  private var gatewayAgents: List<GatewayAgentSummary> = emptyList()
   private var didAutoRequestCanvasRehydrate = false
   private val canvasRehydrateSeq = AtomicLong(0)
 
@@ -618,6 +620,12 @@ class NodeRuntime(
   fun refreshModelCatalog() {
     scope.launch {
       refreshModelCatalogFromGateway()
+    }
+  }
+
+  fun refreshAgents() {
+    scope.launch {
+      refreshAgentsFromGateway()
     }
   }
 
@@ -1495,7 +1503,7 @@ class NodeRuntime(
       val config = root?.get("config").asObjectOrNull()
       val ui = config?.get("ui").asObjectOrNull()
       val raw = ui?.get("seamColor").asStringOrNull()?.trim()
-      syncMainSessionKey(gatewayDefaultAgentId)
+      syncMainSessionKey(gatewayDefaultAgentId.value)
 
       val parsed = parseHexColorArgb(raw)
       _seamColorArgb.value = parsed ?: DEFAULT_SEAM_COLOR_ARGB
@@ -1531,9 +1539,9 @@ class NodeRuntime(
           )
         } ?: emptyList()
 
-      gatewayDefaultAgentId = defaultAgentId.ifEmpty { null }
-      gatewayAgents = agents
-      syncMainSessionKey(resolveAgentIdFromMainSessionKey(mainKey) ?: gatewayDefaultAgentId)
+      _gatewayDefaultAgentId.value = defaultAgentId.ifEmpty { null }
+      _gatewayAgents.value = agents
+      syncMainSessionKey(resolveAgentIdFromMainSessionKey(mainKey) ?: gatewayDefaultAgentId.value)
       updateHomeCanvasState()
     } catch (_: Throwable) {
       // ignore
@@ -1681,22 +1689,22 @@ class NodeRuntime(
       val agentId = mainKey.removePrefix("agent:").substringBefore(':').trim()
       if (agentId.isNotEmpty()) return agentId
     }
-    return gatewayDefaultAgentId?.trim().orEmpty()
+    return gatewayDefaultAgentId.value?.trim().orEmpty()
   }
 
   private fun resolveActiveAgentName(activeAgentId: String): String {
     if (activeAgentId.isNotEmpty()) {
-      gatewayAgents.firstOrNull { it.id == activeAgentId }?.let { agent ->
+      gatewayAgents.value.firstOrNull { it.id == activeAgentId }?.let { agent ->
         return normalized(agent.name) ?: agent.id
       }
       return activeAgentId
     }
-    return gatewayAgents.firstOrNull()?.let { normalized(it.name) ?: it.id } ?: "Main"
+    return gatewayAgents.value.firstOrNull()?.let { normalized(it.name) ?: it.id } ?: "Main"
   }
 
   private fun homeCanvasAgents(activeAgentId: String): List<HomeCanvasAgentCard> {
-    val defaultAgentId = gatewayDefaultAgentId?.trim().orEmpty()
-    return gatewayAgents
+    val defaultAgentId = gatewayDefaultAgentId.value?.trim().orEmpty()
+    return gatewayAgents.value
       .map { agent ->
         val isActive = activeAgentId.isNotEmpty() && agent.id == activeAgentId
         val isDefault = defaultAgentId.isNotEmpty() && agent.id == defaultAgentId
@@ -1814,7 +1822,7 @@ private enum class HomeCanvasGatewayState {
   Offline,
 }
 
-private data class GatewayAgentSummary(
+data class GatewayAgentSummary(
   val id: String,
   val name: String?,
   val emoji: String?,
