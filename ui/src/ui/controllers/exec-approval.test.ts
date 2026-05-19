@@ -12,6 +12,20 @@ describe("parseExecApprovalRequested", () => {
     expect(result?.kind).toBe("exec");
     expect(result?.request.command).toBe("rm -rf /");
   });
+
+  it("preserves allowed decisions from exec approval events", () => {
+    const result = parseExecApprovalRequested({
+      id: "exec-1",
+      request: {
+        command: "rm -rf /",
+        allowedDecisions: ["allow-once", "deny", "allow-always", "bad", "deny"],
+      },
+      createdAtMs: 1000,
+      expiresAtMs: 2000,
+    });
+
+    expect(result?.request.allowedDecisions).toEqual(["allow-once", "deny", "allow-always"]);
+  });
 });
 
 describe("parsePluginApprovalRequested", () => {
@@ -43,6 +57,18 @@ describe("parsePluginApprovalRequested", () => {
     expect(result?.request.sessionKey).toBe("sess-1");
     expect(result?.createdAtMs).toBe(1000);
     expect(result?.expiresAtMs).toBe(120_000);
+  });
+
+  it("preserves allowed decisions from plugin approval events", () => {
+    const result = parsePluginApprovalRequested({
+      ...validPayload,
+      request: {
+        ...validPayload.request,
+        allowedDecisions: ["allow-once", "deny"],
+      },
+    });
+
+    expect(result?.request.allowedDecisions).toEqual(["allow-once", "deny"]);
   });
 
   it("returns null when title is missing from request", () => {

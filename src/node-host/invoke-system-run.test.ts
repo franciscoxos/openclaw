@@ -837,6 +837,55 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
   );
 
   it.runIf(process.platform !== "win32")(
+    "rewrites mixed allowlist and safe-bin shell-wrapper chains before execution",
+    async () => {
+      const tempDir = createFixtureDir("openclaw-mixed-wrapper-rewrite-");
+      const binDir = path.join(tempDir, "bin");
+      fs.mkdirSync(binDir, { recursive: true });
+      const gitPath = createTempExecutable({ dir: binDir, name: "git" });
+      const oldPath = process.env.PATH;
+      process.env.PATH = `${binDir}${path.delimiter}/usr/bin:/bin`;
+
+      try {
+        const expectedGitPath = fs.realpathSync(gitPath);
+        const expectedHeadPath = fs.realpathSync(
+          fs.existsSync("/usr/bin/head") ? "/usr/bin/head" : "/bin/head",
+        );
+        await withTempApprovalsHome({
+          approvals: createAllowlistOnMissApprovals({
+            agents: {
+              main: {
+                allowlist: [{ pattern: expectedGitPath }],
+              },
+            },
+          }),
+          run: async () => {
+            const { runCommand, sendInvokeResult } = await runSystemInvoke({
+              preferMacAppExecHost: false,
+              security: "allowlist",
+              ask: "off",
+              command: ["/bin/sh", "-lc", "sh -c 'git status && head -c 16'"],
+              rawCommand: "sh -c 'git status && head -c 16'",
+            });
+
+            const payload = requireFirstRunCommandArgs(runCommand)[2] ?? "";
+            expect(payload).not.toContain("git status && head -c 16");
+            expect(payload).toContain(expectedGitPath);
+            expect(payload).toContain(expectedHeadPath);
+            expectInvokeOk(sendInvokeResult);
+          },
+        });
+      } finally {
+        if (oldPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = oldPath;
+        }
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
     "does not apply POSIX safe-bin shell rewrites to PowerShell wrappers",
     async () => {
       const oldPath = process.env.PATH;
@@ -1657,6 +1706,97 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     },
   );
 
+  it.runIf(process.platform !== "win32")(
+    "auto-runs static shell-wrapper payloads by their inner executable allowlist",
+    async () => {
+      const tempDir = createFixtureDir("openclaw-shell-wrapper-inner-git-");
+      const binDir = path.join(tempDir, "bin");
+      fs.mkdirSync(binDir, { recursive: true });
+      const gitPath = createTempExecutable({ dir: binDir, name: "git" });
+      const oldPath = process.env.PATH;
+      process.env.PATH = binDir;
+
+      try {
+        await withTempApprovalsHome({
+          approvals: createAllowlistOnMissApprovals({
+            agents: {
+              main: {
+                allowlist: [{ pattern: fs.realpathSync(gitPath) }],
+              },
+            },
+          }),
+          run: async () => {
+            const invoke = await runSystemInvoke({
+              preferMacAppExecHost: false,
+              command: ["/bin/sh", "-c", "git status"],
+              rawCommand: '/bin/sh -c "git status"',
+              cwd: tempDir,
+              security: "allowlist",
+              ask: "on-miss",
+              runCommand: vi.fn(async () => createLocalRunResult("shell-wrapper-git-ok")),
+            });
+
+            expect(invoke.runCommand).toHaveBeenCalledTimes(1);
+            expectInvokeOk(invoke.sendInvokeResult, {
+              payloadContains: "shell-wrapper-git-ok",
+            });
+          },
+        });
+      } finally {
+        if (oldPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = oldPath;
+        }
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "keeps dynamic shell-wrapper payloads approval-gated despite an inner executable allowlist",
+    async () => {
+      const tempDir = createFixtureDir("openclaw-shell-wrapper-dynamic-git-");
+      const binDir = path.join(tempDir, "bin");
+      fs.mkdirSync(binDir, { recursive: true });
+      const gitPath = createTempExecutable({ dir: binDir, name: "git" });
+      const oldPath = process.env.PATH;
+      process.env.PATH = binDir;
+
+      try {
+        await withTempApprovalsHome({
+          approvals: createAllowlistOnMissApprovals({
+            agents: {
+              main: {
+                allowlist: [{ pattern: fs.realpathSync(gitPath) }],
+              },
+            },
+          }),
+          run: async () => {
+            const invoke = await runSystemInvoke({
+              preferMacAppExecHost: false,
+              command: ["/bin/sh", "-c", "$CMD"],
+              cwd: tempDir,
+              security: "allowlist",
+              ask: "on-miss",
+            });
+
+            expect(invoke.runCommand).not.toHaveBeenCalled();
+            expectApprovalRequiredDenied({
+              sendNodeEvent: invoke.sendNodeEvent,
+              sendInvokeResult: invoke.sendInvokeResult,
+            });
+          },
+        });
+      } finally {
+        if (oldPath === undefined) {
+          delete process.env.PATH;
+        } else {
+          process.env.PATH = oldPath;
+        }
+      }
+    },
+  );
+
   it("keeps cmd.exe transport wrappers approval-gated on Windows", async () => {
     const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     try {
@@ -1762,6 +1902,60 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
 
         expect(rerun.runCommand).toHaveBeenCalledTimes(1);
         expectInvokeOk(rerun.sendInvokeResult, { payloadContains: "shell-wrapper-reused" });
+      },
+    });
+  });
+
+  it("does not reuse exact-command durable trust for changed shell-wrapper payloads", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const tempDir = createFixtureDir("openclaw-shell-wrapper-exact-miss-");
+    const prepared = buildSystemRunApprovalPlan({
+      command: ["/bin/sh", "-c", "cd ."],
+      cwd: tempDir,
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) {
+      throw new Error("unreachable");
+    }
+
+    await withTempApprovalsHome({
+      approvals: {
+        version: 1,
+        defaults: { security: "allowlist", ask: "on-miss", askFallback: "full" },
+        agents: {
+          main: {
+            allowlist: [
+              {
+                pattern: `=command:${crypto
+                  .createHash("sha256")
+                  .update(prepared.plan.commandText)
+                  .digest("hex")
+                  .slice(0, 16)}`,
+                source: "allow-always",
+              },
+            ],
+          },
+        },
+      },
+      run: async () => {
+        const changed = await runSystemInvoke({
+          preferMacAppExecHost: false,
+          command: ["/bin/sh", "-c", "cd /tmp"],
+          rawCommand: '/bin/sh -c "cd /tmp"',
+          cwd: tempDir,
+          security: "allowlist",
+          ask: "on-miss",
+          runCommand: vi.fn(async () => createLocalRunResult("unexpected")),
+        });
+
+        expect(changed.runCommand).not.toHaveBeenCalled();
+        expectApprovalRequiredDenied({
+          sendNodeEvent: changed.sendNodeEvent,
+          sendInvokeResult: changed.sendInvokeResult,
+        });
       },
     });
   });

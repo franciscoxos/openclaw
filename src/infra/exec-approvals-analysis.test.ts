@@ -1020,8 +1020,17 @@ describe("exec approvals shell analysis", () => {
           expect(result.analysisOk).toBe(true);
           expect(result.allowlistSatisfied).toBe(true);
           expect(result.allowlistMatches.length).toBe(3);
-          expect(result.segmentSatisfiedBy).toEqual(["allowlist"]);
-          expect(result.segmentAllowlistEntries).toEqual([null]);
+          expect(result.segments.map((segment) => segment.argv[0])).toEqual([
+            "cat",
+            "printf",
+            "gog-wrapper",
+          ]);
+          expect(result.segmentSatisfiedBy).toEqual(["allowlist", "allowlist", "allowlist"]);
+          expect(result.segmentAllowlistEntries).toEqual([
+            expect.objectContaining({ pattern: catPath }),
+            expect.objectContaining({ pattern: printfPath }),
+            expect.objectContaining({ pattern: gogPath }),
+          ]);
           expect(result.segmentSatisfiedBy.length).toBe(result.segments.length);
           expect(result.segmentAllowlistEntries.length).toBe(result.segments.length);
         });

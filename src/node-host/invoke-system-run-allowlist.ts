@@ -89,7 +89,7 @@ export function evaluateSystemRunAllowlist(params: {
     allowlistMatches: allowlistEval.allowlistMatches,
     allowlistSatisfied:
       params.security === "allowlist" && analysis.ok ? allowlistEval.allowlistSatisfied : false,
-    segments: analysis.segments,
+    segments: allowlistEval.segments ?? analysis.segments,
     segmentAllowlistEntries: allowlistEval.segmentAllowlistEntries,
     segmentSatisfiedBy: allowlistEval.segmentSatisfiedBy,
   };

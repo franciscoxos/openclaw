@@ -557,6 +557,41 @@ describe("resolveAllowAlwaysPatterns", () => {
     }
   });
 
+  it("does not persist path-scoped shell-wrapper payloads as reusable script entries", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const { dir, script, env, safeBins } = createShellScriptFixture();
+    fs.chmodSync(script, 0o755);
+
+    const { persisted } = resolvePersistedPatterns({
+      command: "sh -c './scripts/save_crystal.sh'",
+      dir,
+      env,
+      safeBins,
+    });
+
+    expect(persisted).not.toContain(script);
+  });
+
+  it("does not persist later path-scoped shell-wrapper payloads as reusable script entries", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const { dir, script, env, safeBins } = createShellScriptFixture();
+    fs.chmodSync(script, 0o755);
+    makeExecutable(dir, "git");
+
+    const { persisted } = resolvePersistedPatterns({
+      command: "sh -c 'git status && ./scripts/save_crystal.sh'",
+      dir,
+      env,
+      safeBins,
+    });
+
+    expect(persisted).not.toContain(script);
+  });
+
   it("rejects shell-wrapper positional argv carriers", () => {
     if (process.platform === "win32") {
       return;

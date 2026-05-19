@@ -120,6 +120,7 @@ export function renderExecApprovalPrompt(state: AppViewState) {
       : t("execApproval.expired");
   const queueCount = state.execApprovalQueue.length;
   const isPlugin = active.kind === "plugin";
+  const allowedDecisions = request.allowedDecisions ?? ["allow-once", "allow-always", "deny"];
   const title = isPlugin
     ? (active.pluginTitle ?? t("execApproval.pluginApprovalNeeded"))
     : t("execApproval.execApprovalNeeded");
@@ -149,27 +150,33 @@ export function renderExecApprovalPrompt(state: AppViewState) {
           ? html`<div class="exec-approval-error">${state.execApprovalError}</div>`
           : nothing}
         <div class="exec-approval-actions">
-          <button
-            class="btn primary"
-            ?disabled=${state.execApprovalBusy}
-            @click=${() => state.handleExecApprovalDecision("allow-once")}
-          >
-            ${t("execApproval.allowOnce")}
-          </button>
-          <button
-            class="btn"
-            ?disabled=${state.execApprovalBusy}
-            @click=${() => state.handleExecApprovalDecision("allow-always")}
-          >
-            ${t("execApproval.alwaysAllow")}
-          </button>
-          <button
-            class="btn danger"
-            ?disabled=${state.execApprovalBusy}
-            @click=${() => state.handleExecApprovalDecision("deny")}
-          >
-            ${t("execApproval.deny")}
-          </button>
+          ${allowedDecisions.includes("allow-once")
+            ? html`<button
+                class="btn primary"
+                ?disabled=${state.execApprovalBusy}
+                @click=${() => state.handleExecApprovalDecision("allow-once")}
+              >
+                ${t("execApproval.allowOnce")}
+              </button>`
+            : nothing}
+          ${allowedDecisions.includes("allow-always")
+            ? html`<button
+                class="btn"
+                ?disabled=${state.execApprovalBusy}
+                @click=${() => state.handleExecApprovalDecision("allow-always")}
+              >
+                ${t("execApproval.alwaysAllow")}
+              </button>`
+            : nothing}
+          ${allowedDecisions.includes("deny")
+            ? html`<button
+                class="btn danger"
+                ?disabled=${state.execApprovalBusy}
+                @click=${() => state.handleExecApprovalDecision("deny")}
+              >
+                ${t("execApproval.deny")}
+              </button>`
+            : nothing}
         </div>
       </div>
     </openclaw-modal-dialog>

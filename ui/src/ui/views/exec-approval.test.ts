@@ -174,6 +174,22 @@ describe("approval and confirmation modals", () => {
     expect(spans).toEqual(["ls", "python -c"]);
   });
 
+  it("hides Allow Always when the approval request does not allow it", async () => {
+    const request = createExecRequest();
+    request.request.allowedDecisions = ["allow-once", "deny"];
+
+    render(renderExecApprovalPrompt(createExecState({ execApprovalQueue: [request] })), container);
+
+    await getRenderedDialog();
+
+    const buttonTexts = [...container.querySelectorAll("button")].map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(buttonTexts).toContain("Allow once");
+    expect(buttonTexts).toContain("Deny");
+    expect(buttonTexts).not.toContain("Always Allow");
+  });
+
   it("maps Escape to exec denial when approval is idle", async () => {
     const handleExecApprovalDecision = vi.fn(async () => undefined);
     render(renderExecApprovalPrompt(createExecState({ handleExecApprovalDecision })), container);
