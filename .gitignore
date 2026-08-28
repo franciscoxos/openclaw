@@ -168,6 +168,9 @@ mantis/
 /client_secret_*.json
 package-lock.json
 .claude/
+.codex/
+.Codex/
+.opencode/
 .agent/
 skills-lock.json
 
